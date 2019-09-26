@@ -1,0 +1,58 @@
+#需要加载的包
+library(edgeR)
+library(xlsx)
+library(dplyr)
+library(ggplot2)
+# 组间差异OTU表格制作
+# 读入实验设计
+design=read.xlsx2("design.xls",sheetIndex = 1)
+rownames(design)=design$sampleID
+design=design[,-1]
+# 读取OTU表
+otu_table = read.delim("otu_table.txt", row.names= 1,  header=T, sep="\t",check.names = F)
+# 过滤数据并排序
+idx = rownames(design) %in% colnames(otu_table)
+sub_design = design[idx,]
+count = otu_table[, rownames(sub_design)]
+# 使用edgeR统计组间差异OTU，以BN vs DN为例
+# create DGE list
+d = DGEList(counts=count, group=sub_design$regime)
+d = calcNormFactors(d)
+
+# 生成实验设计矩阵
+design.mat = model.matrix(~ 0 + d$samples$group)
+colnames(design.mat)=levels(sub_design$regime)
+d2 = estimateGLMCommonDisp(d, design.mat)
+d2 = estimateGLMTagwiseDisp(d2, design.mat)
+fit = glmFit(d2, design.mat)
+
+# 设置比较组
+BvsA <- makeContrasts(contrasts = "BN-DN", levels=design.mat)
+# 组间比较,统计Fold change, Pvalue
+lrt = glmLRT(fit,contrast=BvsA)
+# FDR检验，控制假阳性率小于5%
+de_lrt = decideTestsDGE(lrt, adjust.method="fdr", p.value=0.05)
+
+# 导出计算结果
+x=lrt$table
+x$sig=de_lrt
+enriched = row.names(subset(x,sig==1))
+depleted = row.names(subset(x,sig==-1))
+x$id=rownames(x)
+# 标记差异OTU类型
+x$level = as.factor(ifelse(x$sig==1, "enriched",ifelse(x$sig==-1, "depleted","nosig")))
+x$otu = rownames(x)
+# 读取taxonomy，并添加各列名称
+taxonomy = read.delim("rep_seqs_tax.txt", row.names= 1,header=F, sep="\t")
+colnames(taxonomy) = c("kingdom","phylum","class","order","family","genus","species","evalue")
+idx1=rownames(taxonomy) %in% rownames(otu_table)
+taxonomy=taxonomy[idx1,]
+taxonomy$id=rownames(taxonomy)
+#合并表格
+data=merge(x = x, y = taxonomy, by = "id", all = TRUE) 
+rownames(data)=data$id
+data=data[,-1]
+data=data[,-13]
+write.table(data, file="x.txt", append = F, sep="\t", quote=F, row.names=T, col.names=T)
+
+
