@@ -1,0 +1,42 @@
+#需要加载的包
+library(ggplot2)
+x = read.table("x.txt", header=T, row.names= 1, sep="\t", stringsAsFactors = F) 
+x = na.omit(x)
+# Negtive log Pvalue for manhattan
+x$neglogp = -log10(x$PValue)
+
+x$otu=rownames(x)
+x = arrange(x, kingdom, phylum, class, order, family, genus, species)
+x$otu = factor(x$otu, levels=x$otu)   # set x order
+x$num = 1:dim(x)[1]
+# group non-top into Low Abundance
+x$tax = x$phylum 
+# Proteobacteria classified into class
+x[x$tax %in% "p__Proteobacteria",]$tax =  x[x$tax %in% "p__Proteobacteria",]$class # no level can get value
+if (length(unique(x$tax)) > length(top_tax)){
+  x[!(x$tax %in% top_tax),]$tax = "Low Abundance"
+}
+# Adjust label order
+label = unique(x$tax)
+label = label[!(label %in% "Low Abundance")] # Delete low abundance
+x$tax = factor(x$tax, levels = c(label, "Low Abundance"))
+# Claculate labe median
+temp = x[x$tax %in% label, c("tax","num")]
+mat_mean = aggregate(temp[,-1], by=temp[1], FUN=median) # mean
+
+# Set max neglogp
+if (max(x$neglogp)>5){
+  x[x$neglogp>5,]$neglogp  = 5
+}
+# Manhattan plot
+FDR = min(x$neglogp[x$level!="nosig"])
+p = ggplot(x, aes(x=num, y=neglogp, color=tax, size=logCPM, shape=level)) +
+  geom_point(alpha=.7) + 
+  geom_hline(yintercept=FDR, linetype=2, color="lightgrey") +
+  scale_shape_manual(values=c(25, 17, 20))+
+  scale_size(breaks=c(5, 10, 15)) +
+  labs(x="OTU", y="-log10(P)", title=paste("result/compare/LTEJ-LIND_all.txt", sep=" ")) +
+  theme(legend.position="top") +
+  scale_x_continuous(breaks=mat_mean$x, labels=mat_mean$tax) + 
+  theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1))
+p
